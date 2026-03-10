@@ -9,32 +9,32 @@ import {
   ParseIntPipe,
   UseGuards,
 } from '@nestjs/common';
-import { CourseService } from './course.service';
-import { CreateCourseDto } from './dto/create-course.dto';
-import { UpdateCourseDto } from './dto/update-course.dto';
+import { DepartmentService } from './department.service';
+import { CreateDepartmentDto } from './dto/create-department.dto';
+import { UpdateDepartmentDto } from './dto/update-department.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 
-@Controller('courses')
-export class CourseController {
-  constructor(private readonly courseService: CourseService) {}
+@Controller('departments')
+export class DepartmentController {
+  constructor(private readonly departmentService: DepartmentService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
   @Post()
-  create(@Body() createCourseDto: CreateCourseDto) {
-    return this.courseService.create(createCourseDto);
+  create(@Body() dto: CreateDepartmentDto) {
+    return this.departmentService.create(dto);
   }
 
   @Get()
   findAll() {
-    return this.courseService.findAll();
+    return this.departmentService.findAll();
   }
 
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.courseService.findOne(id);
+    return this.departmentService.findOne(id);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -42,15 +42,15 @@ export class CourseController {
   @Put(':id')
   update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() updateCourseDto: UpdateCourseDto,
+    @Body() dto: UpdateDepartmentDto,
   ) {
-    return this.courseService.update(id, updateCourseDto);
+    return this.departmentService.update(id, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
-    return this.courseService.remove(id);
+    return this.departmentService.remove(id);
   }
 }
