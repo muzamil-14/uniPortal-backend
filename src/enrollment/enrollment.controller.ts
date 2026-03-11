@@ -2,7 +2,9 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Delete,
+  Body,
   Param,
   ParseIntPipe,
   UseGuards,
@@ -31,9 +33,18 @@ export class EnrollmentController {
     return this.enrollmentService.getUserEnrollments(req.user.userId);
   }
 
-  @Roles('admin')
+  @Roles('admin', 'teacher')
   @Get('courses/:courseId/students')
-  getCourseStudents(@Param('courseId', ParseIntPipe) courseId: number) {
+  getCourseStudents(
+    @Request() req: any,
+    @Param('courseId', ParseIntPipe) courseId: number,
+  ) {
+    if (req.user.role === 'teacher') {
+      return this.enrollmentService.getTeacherCourseEnrollments(
+        req.user.userId,
+        courseId,
+      );
+    }
     return this.enrollmentService.getCourseEnrollments(courseId);
   }
 
@@ -55,5 +66,50 @@ export class EnrollmentController {
     @Param('courseId', ParseIntPipe) courseId: number,
   ) {
     return this.enrollmentService.unenroll(req.user.userId, courseId);
+  }
+
+  @Roles('admin', 'teacher')
+  @Patch('courses/:courseId/users/:userId/grade')
+  assignGrade(
+    @Request() req: any,
+    @Param('courseId', ParseIntPipe) courseId: number,
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() body: { grade: string; marks?: number },
+  ) {
+    if (req.user.role === 'teacher') {
+      return this.enrollmentService.assignGradeAsTeacher(
+        req.user.userId,
+        userId,
+        courseId,
+        body.grade,
+        body.marks,
+      );
+    }
+    return this.enrollmentService.assignGrade(
+      userId,
+      courseId,
+      body.grade,
+      body.marks,
+    );
+  }
+
+  @Get('my-grades')
+  getMyGrades(@Request() req: any) {
+    return this.enrollmentService.getStudentGrades(req.user.userId);
+  }
+
+  @Roles('admin', 'teacher')
+  @Get('courses/:courseId/grades')
+  getCourseGrades(
+    @Request() req: any,
+    @Param('courseId', ParseIntPipe) courseId: number,
+  ) {
+    if (req.user.role === 'teacher') {
+      return this.enrollmentService.getTeacherCourseEnrollments(
+        req.user.userId,
+        courseId,
+      );
+    }
+    return this.enrollmentService.getAllEnrollmentsWithGrades(courseId);
   }
 }

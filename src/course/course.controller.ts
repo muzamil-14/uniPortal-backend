@@ -6,8 +6,10 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   ParseIntPipe,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { CourseService } from './course.service';
 import { CreateCourseDto } from './dto/create-course.dto';
@@ -28,8 +30,15 @@ export class CourseController {
   }
 
   @Get()
-  findAll() {
-    return this.courseService.findAll();
+  findAll(@Query('department') department?: string) {
+    return this.courseService.findAll(department);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('teacher')
+  @Get('teacher/my-courses')
+  getTeacherCourses(@Request() req: any) {
+    return this.courseService.findByInstructor(req.user.userId);
   }
 
   @Get(':id')

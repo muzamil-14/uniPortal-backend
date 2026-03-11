@@ -6,18 +6,27 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { OAuth2Client } from 'google-auth-library';
 import { User } from './user.entity';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
+  private googleClient: OAuth2Client;
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private jwtService: JwtService,
-  ) {}
+    private configService: ConfigService,
+  ) {
+    this.googleClient = new OAuth2Client(
+      this.configService.get<string>('GOOGLE_CLIENT_ID'),
+    );
+  }
 
   async signup(signupDto: SignupDto) {
     const existing = await this.userRepository.findOneBy({
@@ -48,13 +57,42 @@ export class AuthService {
     const user = await this.userRepository.findOneBy({
       email: loginDto.email,
     });
-    if (!user) {
+    if (!user || !user.password) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
     const passwordValid = await bcrypt.compare(loginDto.password, user.password);
     if (!passwordValid) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    const token = this.generateToken(user);
+    return {
+      user: this.sanitizeUser(user),
+      access_token: token,
+    };
+  }
+
+  async googleLogin(credential: string) {
+    const ticket = await this.googleClient.verifyIdToken({
+      idToken: credential,
+      audience: this.configService.get<string>('GOOGLE_CLIENT_ID'),
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      throw new UnauthorizedException('Invalid Google token');
+    }
+
+    let user = await this.userRepository.findOneBy({ email: payload.email });
+
+    if (!user) {
+      user = this.userRepository.create({
+        name: payload.name || payload.email.split('@')[0],
+        email: payload.email,
+        password: null,
+      });
+      await this.userRepository.save(user);
     }
 
     const token = this.generateToken(user);

@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UpdateCourseDto {
   @IsOptional()
@@ -15,6 +15,10 @@ export class UpdateCourseDto {
 
   @IsOptional()
   @IsNumber()
+  instructorId?: number;
+
+  @IsOptional()
+  @IsNumber()
   price?: number;
 
   @IsOptional()
@@ -22,8 +26,9 @@ export class UpdateCourseDto {
   creditHours?: number;
 
   @IsOptional()
-  @IsString()
-  schedule?: string;
+  @IsArray()
+  @IsString({ each: true })
+  departments?: string[];
 
   @IsOptional()
   @IsBoolean()

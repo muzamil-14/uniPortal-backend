@@ -30,6 +30,12 @@ export class Enrollment {
   @Column({ default: 'enrolled' })
   status: string;
 
+  @Column({ nullable: true })
+  grade: string;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  marks: number;
+
   @CreateDateColumn()
   enrolledAt: Date;
 }

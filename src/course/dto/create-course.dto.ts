@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateCourseDto {
   @IsString()
@@ -9,9 +9,13 @@ export class CreateCourseDto {
   @IsNotEmpty()
   description: string;
 
+  @IsOptional()
   @IsString()
+  instructor?: string;
+
+  @IsNumber()
   @IsNotEmpty()
-  instructor: string;
+  instructorId: number;
 
   @IsNumber()
   price: number;
@@ -20,7 +24,8 @@ export class CreateCourseDto {
   @IsNumber()
   creditHours?: number;
 
-  @IsOptional()
-  @IsString()
-  schedule?: string;
+  @IsArray()
+  @IsString({ each: true })
+  @IsNotEmpty()
+  departments: string[];
 }

@@ -13,6 +13,7 @@ import {
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { GoogleLoginDto } from './dto/google-login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AssignDepartmentDto } from './dto/assign-department.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
@@ -32,6 +33,11 @@ export class AuthController {
   @Post('login')
   login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Post('google')
+  googleLogin(@Body() googleLoginDto: GoogleLoginDto) {
+    return this.authService.googleLogin(googleLoginDto.credential);
   }
 
   @UseGuards(JwtAuthGuard)
