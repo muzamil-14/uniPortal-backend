@@ -98,6 +98,11 @@ export class EnrollmentController {
     return this.enrollmentService.getStudentGrades(req.user.userId);
   }
 
+  @Get('result-card')
+  getResultCard(@Request() req: any) {
+    return this.enrollmentService.getResultCard(req.user.userId);
+  }
+
   @Roles('admin', 'teacher')
   @Get('courses/:courseId/grades')
   getCourseGrades(

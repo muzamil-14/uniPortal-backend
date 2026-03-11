@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { Enrollment } from './enrollment.entity';
 import { Course } from '../course/course.entity';
 import { User } from '../auth/user.entity';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class EnrollmentService {
@@ -20,6 +21,7 @@ export class EnrollmentService {
     private courseRepository: Repository<Course>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private notificationService: NotificationService,
   ) {}
 
   async enroll(userId: number, courseId: number): Promise<Enrollment> {
@@ -104,7 +106,19 @@ export class EnrollmentService {
     enrollment.grade = grade;
     enrollment.status = 'completed';
     if (marks !== undefined) enrollment.marks = marks;
-    return this.enrollmentRepository.save(enrollment);
+    const saved = await this.enrollmentRepository.save(enrollment);
+
+    // Send grade notification
+    const course = await this.courseRepository.findOneBy({ id: courseId });
+    await this.notificationService.createNotification(
+      userId,
+      'Grade Published',
+      `Your grade for ${course?.title || 'a course'} has been posted: ${grade}${marks !== undefined ? ` (${marks} marks)` : ''}`,
+      'grade',
+      courseId,
+    );
+
+    return saved;
   }
 
   async assignGradeAsTeacher(
@@ -150,5 +164,49 @@ export class EnrollmentService {
       );
     }
     return this.getAllEnrollmentsWithGrades(courseId);
+  }
+
+  async getResultCard(userId: number) {
+    const enrollments = await this.enrollmentRepository.find({
+      where: { userId, status: 'completed' },
+      relations: ['course'],
+      order: { enrolledAt: 'ASC' },
+    });
+
+    if (enrollments.length === 0) {
+      return { courses: [], totalCredits: 0, gpa: 0 };
+    }
+
+    const gradePoints: Record<string, number> = {
+      'A+': 4.0, 'A': 4.0, 'A-': 3.7,
+      'B+': 3.3, 'B': 3.0, 'B-': 2.7,
+      'C+': 2.3, 'C': 2.0, 'C-': 1.7,
+      'D+': 1.3, 'D': 1.0, 'F': 0.0,
+    };
+
+    let totalPoints = 0;
+    let totalCredits = 0;
+
+    const courses = enrollments.map((e) => {
+      const credits = e.course.creditHours;
+      const gp = gradePoints[e.grade] ?? 0;
+      totalPoints += gp * credits;
+      totalCredits += credits;
+      return {
+        courseId: e.courseId,
+        courseTitle: e.course.title,
+        instructor: e.course.instructor,
+        creditHours: credits,
+        grade: e.grade,
+        marks: e.marks,
+        gradePoints: gp,
+      };
+    });
+
+    return {
+      courses,
+      totalCredits,
+      gpa: totalCredits > 0 ? Math.round((totalPoints / totalCredits) * 100) / 100 : 0,
+    };
   }
 }
