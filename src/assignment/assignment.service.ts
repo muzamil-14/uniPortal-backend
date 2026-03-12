@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,6 +12,7 @@ import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { Notification } from '../notification/notification.entity';
 import { Enrollment } from '../enrollment/enrollment.entity';
+import { User } from '../auth/user.entity';
 
 @Injectable()
 export class AssignmentService {
@@ -23,6 +25,8 @@ export class AssignmentService {
     private notificationRepository: Repository<Notification>,
     @InjectRepository(Enrollment)
     private enrollmentRepository: Repository<Enrollment>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
   ) {}
 
   async create(teacherId: number, dto: CreateAssignmentDto): Promise<Assignment> {
@@ -32,6 +36,10 @@ export class AssignmentService {
       throw new ForbiddenException('You can only create assignments for your courses');
     }
 
+    if (new Date(dto.deadline) <= new Date()) {
+      throw new BadRequestException('Deadline must be a future date and time');
+    }
+
     const assignment = this.assignmentRepository.create({
       ...dto,
       createdById: teacherId,
@@ -39,6 +47,7 @@ export class AssignmentService {
     const saved = await this.assignmentRepository.save(assignment);
 
     // Notify enrolled students about new assignment
+    const teacher = await this.userRepository.findOneBy({ id: teacherId });
     const enrollments = await this.enrollmentRepository.find({
       where: { courseId: dto.courseId, status: 'enrolled' },
     });
@@ -46,7 +55,7 @@ export class AssignmentService {
       this.notificationRepository.create({
         userId: e.userId,
         title: 'New Assignment',
-        message: `New assignment "${dto.title}" in ${course.title}. Deadline: ${new Date(dto.deadline).toLocaleDateString()}`,
+        message: `From: ${teacher?.name ?? 'Teacher'} | Course: ${course.title}\n\nNew assignment "${dto.title}". Deadline: ${new Date(dto.deadline).toLocaleDateString()}`,
         type: 'deadline',
         relatedId: saved.id,
       }),
@@ -84,6 +93,9 @@ export class AssignmentService {
     if (!assignment) throw new NotFoundException('Assignment not found');
     if (assignment.createdById !== teacherId) {
       throw new ForbiddenException('You can only update your own assignments');
+    }
+    if (dto.deadline && new Date(dto.deadline) <= new Date()) {
+      throw new BadRequestException('Deadline must be a future date and time');
     }
     Object.assign(assignment, dto);
     return this.assignmentRepository.save(assignment);

@@ -5,6 +5,8 @@ import { Notification } from './notification.entity';
 import { SendMessageDto } from './dto/send-message.dto';
 import { Course } from '../course/course.entity';
 import { Enrollment } from '../enrollment/enrollment.entity';
+import { User } from '../auth/user.entity';
+import { NotificationRealtimeService } from './notification-realtime.service';
 
 @Injectable()
 export class NotificationService {
@@ -15,6 +17,9 @@ export class NotificationService {
     private courseRepository: Repository<Course>,
     @InjectRepository(Enrollment)
     private enrollmentRepository: Repository<Enrollment>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
+    private notificationRealtimeService: NotificationRealtimeService,
   ) {}
 
   async sendMessage(teacherId: number, dto: SendMessageDto): Promise<Notification[]> {
@@ -23,16 +28,25 @@ export class NotificationService {
       throw new ForbiddenException('You can only message students in your courses');
     }
 
+    const teacher = await this.userRepository.findOneBy({ id: teacherId });
+
     const notifications = dto.studentIds.map((studentId) =>
       this.notificationRepository.create({
         userId: studentId,
         title: dto.title,
-        message: dto.message,
+        message: `From: ${teacher?.name ?? 'Teacher'} | Course: ${course.title}\n\n${dto.message}`,
         type: 'message',
         relatedId: dto.courseId,
       }),
     );
-    return this.notificationRepository.save(notifications);
+    const saved = await this.notificationRepository.save(notifications);
+    await Promise.all(
+      dto.studentIds.map(async (studentId) => {
+        const count = await this.getUnreadCount(studentId);
+        this.notificationRealtimeService.emitUnreadCount(studentId, count);
+      }),
+    );
+    return saved;
   }
 
   async getUserNotifications(userId: number): Promise<Notification[]> {
@@ -53,6 +67,8 @@ export class NotificationService {
       { id, userId },
       { isRead: true },
     );
+    const count = await this.getUnreadCount(userId);
+    this.notificationRealtimeService.emitUnreadCount(userId, count);
   }
 
   async markAllAsRead(userId: number): Promise<void> {
@@ -60,6 +76,7 @@ export class NotificationService {
       { userId, isRead: false },
       { isRead: true },
     );
+    this.notificationRealtimeService.emitUnreadCount(userId, 0);
   }
 
   async createNotification(
@@ -76,6 +93,9 @@ export class NotificationService {
       type,
       relatedId,
     });
-    return this.notificationRepository.save(notification);
+    const saved = await this.notificationRepository.save(notification);
+    const count = await this.getUnreadCount(userId);
+    this.notificationRealtimeService.emitUnreadCount(userId, count);
+    return saved;
   }
 }

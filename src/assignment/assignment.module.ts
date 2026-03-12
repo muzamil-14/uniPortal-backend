@@ -6,9 +6,10 @@ import { AssignmentController } from './assignment.controller';
 import { Course } from '../course/course.entity';
 import { Notification } from '../notification/notification.entity';
 import { Enrollment } from '../enrollment/enrollment.entity';
+import { User } from '../auth/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Assignment, Course, Notification, Enrollment])],
+  imports: [TypeOrmModule.forFeature([Assignment, Course, Notification, Enrollment, User])],
   controllers: [AssignmentController],
   providers: [AssignmentService],
 })

@@ -16,6 +16,7 @@ import { AssignmentModule } from './assignment/assignment.module';
 import { SubmissionModule } from './submission/submission.module';
 import { NotificationModule } from './notification/notification.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { QuizModule } from './quiz/quiz.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     SubmissionModule,
     NotificationModule,
     AnalyticsModule,
+    QuizModule,
   ],
   controllers: [AppController],
   providers: [AppService],
