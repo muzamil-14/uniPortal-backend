@@ -16,11 +16,15 @@ import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { FeeVoucherService } from '../fee-voucher/fee-voucher.service';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('assignments')
 export class AssignmentController {
-  constructor(private readonly assignmentService: AssignmentService) {}
+  constructor(
+    private readonly assignmentService: AssignmentService,
+    private readonly feeVoucherService: FeeVoucherService,
+  ) {}
 
   @Roles('teacher')
   @Post()
@@ -29,7 +33,13 @@ export class AssignmentController {
   }
 
   @Get('course/:courseId')
-  findByCourse(@Param('courseId', ParseIntPipe) courseId: number) {
+  async findByCourse(
+    @Request() req: any,
+    @Param('courseId', ParseIntPipe) courseId: number,
+  ) {
+    if (req.user.role === 'student') {
+      await this.feeVoucherService.ensureCourseAccess(req.user.userId, courseId);
+    }
     return this.assignmentService.findByCourse(courseId);
   }
 

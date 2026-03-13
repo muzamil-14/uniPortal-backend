@@ -7,9 +7,13 @@ import { Course } from '../course/course.entity';
 import { Notification } from '../notification/notification.entity';
 import { Enrollment } from '../enrollment/enrollment.entity';
 import { User } from '../auth/user.entity';
+import { FeeVoucherModule } from '../fee-voucher/fee-voucher.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Assignment, Course, Notification, Enrollment, User])],
+  imports: [
+    TypeOrmModule.forFeature([Assignment, Course, Notification, Enrollment, User]),
+    FeeVoucherModule,
+  ],
   controllers: [AssignmentController],
   providers: [AssignmentService],
 })

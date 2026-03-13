@@ -10,6 +10,7 @@ import { Quiz, QuizQuestion, QuizAttempt } from './quiz.entity';
 import { Enrollment } from '../enrollment/enrollment.entity';
 import { CreateQuizDto } from './dto/quiz.dto';
 import { QuizRealtimeService } from './quiz-realtime.service';
+import { FeeVoucherService } from '../fee-voucher/fee-voucher.service';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
@@ -27,6 +28,7 @@ export class QuizService {
     @InjectRepository(Enrollment)
     private enrollmentRepo: Repository<Enrollment>,
     private quizRealtimeService: QuizRealtimeService,
+    private feeVoucherService: FeeVoucherService,
   ) {}
 
   async createQuiz(teacherId: number, dto: CreateQuizDto): Promise<Quiz> {
@@ -102,6 +104,13 @@ export class QuizService {
     const courseIds = enrollments.map((e) => e.courseId);
     if (courseIds.length === 0) return [];
 
+    const blockedCourseIds = await this.feeVoucherService.getBlockedCourseIds(
+      studentId,
+      courseIds,
+    );
+    const accessibleCourseIds = courseIds.filter((id) => !blockedCourseIds.includes(id));
+    if (accessibleCourseIds.length === 0) return [];
+
     const now = new Date();
     const quizzes = await this.quizRepo
       .createQueryBuilder('quiz')
@@ -118,7 +127,7 @@ export class QuizService {
         'attempt.tabSwitchCount',
         'attempt.startedAt',
       ])
-      .where('quiz.courseId IN (:...courseIds)', { courseIds })
+      .where('quiz.courseId IN (:...courseIds)', { courseIds: accessibleCourseIds })
       .andWhere('quiz.isActive = :active', { active: true })
       .andWhere(
         '(quiz.endTime >= :now OR (attempt.id IS NOT NULL AND attempt.submitted = :submitted))',
@@ -136,6 +145,8 @@ export class QuizService {
       relations: ['questions'],
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
+
+    await this.feeVoucherService.ensureCourseAccess(studentId, quiz.courseId);
 
     const enrollment = await this.enrollmentRepo.findOne({
       where: { userId: studentId, courseId: quiz.courseId, status: 'enrolled' },
@@ -183,6 +194,8 @@ export class QuizService {
       relations: ['questions', 'course'],
     });
     if (!quiz) throw new NotFoundException('Quiz not found');
+
+    await this.feeVoucherService.ensureCourseAccess(studentId, quiz.courseId);
 
     const enrollment = await this.enrollmentRepo.findOne({
       where: { userId: studentId, courseId: quiz.courseId, status: 'enrolled' },
@@ -232,6 +245,7 @@ export class QuizService {
       relations: ['quiz'],
     });
     if (!attempt) throw new NotFoundException('Attempt not found');
+    await this.feeVoucherService.ensureCourseAccess(studentId, attempt.quiz.courseId);
     if (attempt.submitted) {
       throw new BadRequestException('Quiz already submitted');
     }
@@ -252,8 +266,10 @@ export class QuizService {
   ): Promise<void> {
     const attempt = await this.attemptRepo.findOne({
       where: { id: attemptId, studentId },
+      relations: ['quiz'],
     });
     if (!attempt || attempt.submitted) return;
+    await this.feeVoucherService.ensureCourseAccess(studentId, attempt.quiz.courseId);
     attempt.flaggedCheating = true;
     await this.attemptRepo.save(attempt);
   }
@@ -265,8 +281,10 @@ export class QuizService {
   ): Promise<void> {
     const attempt = await this.attemptRepo.findOne({
       where: { id: attemptId, studentId },
+      relations: ['quiz'],
     });
     if (!attempt) return;
+    await this.feeVoucherService.ensureCourseAccess(studentId, attempt.quiz.courseId);
     const match = imageData.match(/^data:image\/(jpeg|png|webp);base64,(.+)$/);
     if (!match) return;
     const dir = join(process.cwd(), 'uploads', 'screenshots');
@@ -282,6 +300,13 @@ export class QuizService {
     studentId: number,
     filePath: string,
   ): Promise<void> {
+    const attempt = await this.attemptRepo.findOne({
+      where: { id: attemptId, studentId },
+      relations: ['quiz'],
+    });
+    if (!attempt) return;
+    await this.feeVoucherService.ensureCourseAccess(studentId, attempt.quiz.courseId);
+
     await this.attemptRepo.update(
       { id: attemptId, studentId },
       { recordingPath: filePath },
@@ -319,6 +344,7 @@ export class QuizService {
       relations: ['quiz', 'quiz.questions'],
     });
     if (!attempt) throw new NotFoundException('Attempt not found');
+    await this.feeVoucherService.ensureCourseAccess(studentId, attempt.quiz.courseId);
     if (attempt.submitted) {
       throw new BadRequestException('Quiz already submitted');
     }
@@ -350,6 +376,7 @@ export class QuizService {
       relations: ['quiz'],
     });
     if (!attempt) throw new NotFoundException('Attempt not found');
+    await this.feeVoucherService.ensureCourseAccess(studentId, attempt.quiz.courseId);
 
     if (!attempt.submitted && this.isAttemptExpired(attempt, attempt.quiz.duration)) {
       return this.submitQuiz(attempt.id, studentId, attempt.answers || {});

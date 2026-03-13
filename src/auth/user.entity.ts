@@ -30,6 +30,9 @@ export class User {
   @Column({ default: 'student' })
   role: string;
 
+  @Column({ default: 1 })
+  currentSemester: number;
+
   @OneToMany(() => Enrollment, (enrollment) => enrollment.user)
   enrollments: Enrollment[];
 

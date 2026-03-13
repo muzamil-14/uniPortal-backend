@@ -14,11 +14,15 @@ import { MarkAttendanceDto } from './dto/mark-attendance.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { FeeVoucherService } from '../fee-voucher/fee-voucher.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('attendance')
 export class AttendanceController {
-  constructor(private readonly attendanceService: AttendanceService) {}
+  constructor(
+    private readonly attendanceService: AttendanceService,
+    private readonly feeVoucherService: FeeVoucherService,
+  ) {}
 
   @UseGuards(RolesGuard)
   @Roles('admin', 'teacher')
@@ -48,10 +52,11 @@ export class AttendanceController {
   }
 
   @Get('my/course/:courseId')
-  getMyCoursAttendance(
+  async getMyCoursAttendance(
     @Request() req: any,
     @Param('courseId', ParseIntPipe) courseId: number,
   ) {
+    await this.feeVoucherService.ensureCourseAccess(req.user.userId, courseId);
     return this.attendanceService.getStudentCourseAttendance(
       req.user.userId,
       courseId,

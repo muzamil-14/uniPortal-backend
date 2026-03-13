@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { Submission } from './submission.entity';
 import { Assignment } from '../assignment/assignment.entity';
 import { Enrollment } from '../enrollment/enrollment.entity';
+import { FeeVoucherService } from '../fee-voucher/fee-voucher.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -22,6 +23,7 @@ export class SubmissionService {
     private assignmentRepository: Repository<Assignment>,
     @InjectRepository(Enrollment)
     private enrollmentRepository: Repository<Enrollment>,
+    private feeVoucherService: FeeVoucherService,
   ) {}
 
   async submit(
@@ -48,6 +50,8 @@ export class SubmissionService {
     if (!enrolled) {
       throw new ForbiddenException('You are not enrolled in this course');
     }
+
+    await this.feeVoucherService.ensureCourseAccess(studentId, assignment.courseId);
 
     // Check duplicate submission
     const existing = await this.submissionRepository.findOneBy({

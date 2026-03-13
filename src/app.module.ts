@@ -17,6 +17,8 @@ import { SubmissionModule } from './submission/submission.module';
 import { NotificationModule } from './notification/notification.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { QuizModule } from './quiz/quiz.module';
+import { FeeVoucherModule } from './fee-voucher/fee-voucher.module';
+import { SemesterModule } from './semester/semester.module';
 
 @Module({
   imports: [
@@ -49,6 +51,8 @@ import { QuizModule } from './quiz/quiz.module';
     NotificationModule,
     AnalyticsModule,
     QuizModule,
+    FeeVoucherModule,
+    SemesterModule,
   ],
   controllers: [AppController],
   providers: [AppService],

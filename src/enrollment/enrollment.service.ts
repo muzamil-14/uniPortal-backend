@@ -10,7 +10,10 @@ import { Repository } from 'typeorm';
 import { Enrollment } from './enrollment.entity';
 import { Course } from '../course/course.entity';
 import { User } from '../auth/user.entity';
+import { StudentSemester } from '../semester/student-semester.entity';
 import { NotificationService } from '../notification/notification.service';
+import { FeeVoucherService } from '../fee-voucher/fee-voucher.service';
+import { SemesterService } from '../semester/semester.service';
 
 @Injectable()
 export class EnrollmentService {
@@ -21,34 +24,81 @@ export class EnrollmentService {
     private courseRepository: Repository<Course>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(StudentSemester)
+    private studentSemesterRepository: Repository<StudentSemester>,
     private notificationService: NotificationService,
+    private feeVoucherService: FeeVoucherService,
+    private semesterService: SemesterService,
   ) {}
 
   async enroll(userId: number, courseId: number): Promise<Enrollment> {
-    const existing = await this.enrollmentRepository.findOneBy({
-      userId,
-      courseId,
-    });
-    if (existing) {
-      throw new ConflictException('Already enrolled in this course');
-    }
-
     const course = await this.courseRepository.findOneBy({ id: courseId });
     if (!course) {
       throw new NotFoundException('Course not found');
     }
 
+    const student = await this.userRepository.findOneBy({ id: userId });
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
     if (course.departments && course.departments.length > 0) {
-      const student = await this.userRepository.findOneBy({ id: userId });
-      if (!student || !course.departments.includes(student.department)) {
+      if (!course.departments.includes(student.department)) {
         throw new BadRequestException(
           'You can only enroll in courses from your department',
         );
       }
     }
 
-    const enrollment = this.enrollmentRepository.create({ userId, courseId });
-    return this.enrollmentRepository.save(enrollment);
+    const userEnrollments = await this.enrollmentRepository.find({
+      where: { userId },
+      relations: ['course'],
+    });
+    const existing = userEnrollments.find((enrollment) => enrollment.courseId === courseId);
+    if (existing) {
+      throw new ConflictException('Already enrolled in this course');
+    }
+
+    const selectedTitle = this.normalizeCourseTitle(course.title);
+    const passedEquivalent = userEnrollments.find(
+      (enrollment) =>
+        enrollment.courseId !== courseId &&
+        this.normalizeCourseTitle(enrollment.course?.title) === selectedTitle &&
+        enrollment.status === 'completed' &&
+        this.isPassingGrade(enrollment.grade),
+    );
+    if (passedEquivalent) {
+      throw new BadRequestException(
+        'You have already passed this course in a previous semester.',
+      );
+    }
+
+    // Semester validation: check semester restriction and credit hour limits
+    await this.semesterService.validateEnrollment(userId, courseId);
+
+    const duplicateByTitle = userEnrollments.find(
+      (enrollment) =>
+        enrollment.courseId !== courseId &&
+        enrollment.semesterNumber === student.currentSemester &&
+        this.normalizeCourseTitle(enrollment.course?.title) === selectedTitle,
+    );
+    if (duplicateByTitle) {
+      throw new BadRequestException(
+        'You cannot select the same course from multiple teachers in the same semester.',
+      );
+    }
+
+    const enrollment = this.enrollmentRepository.create({
+      userId,
+      courseId,
+      semesterNumber: student.currentSemester,
+    });
+    const saved = await this.enrollmentRepository.save(enrollment);
+    await this.semesterService.markSemesterStartedOnCourseSelection(
+      userId,
+      student.currentSemester,
+    );
+    return saved;
   }
 
   async getUserEnrollments(userId: number): Promise<Enrollment[]> {
@@ -74,12 +124,23 @@ export class EnrollmentService {
     if (!enrollment) {
       throw new NotFoundException('Enrollment not found');
     }
-    if (enrollment.status === 'completed') {
-      throw new BadRequestException(
-        'Cannot drop a completed course. The grade has been finalized.',
+
+    const dropEligibility = await this.getDropEligibility(enrollment);
+    if (!dropEligibility.canDrop) {
+      throw new BadRequestException(dropEligibility.message);
+    }
+
+    await this.enrollmentRepository.remove(enrollment);
+    if (
+      enrollment.semesterNumber !== null &&
+      enrollment.semesterNumber !== undefined
+    ) {
+      await this.feeVoucherService.removeCourseFeeOnUnenrollment(
+        userId,
+        courseId,
+        enrollment.semesterNumber,
       );
     }
-    await this.enrollmentRepository.remove(enrollment);
   }
 
   async isEnrolled(userId: number, courseId: number): Promise<boolean> {
@@ -90,12 +151,74 @@ export class EnrollmentService {
     return !!enrollment;
   }
 
+  async getEnrollmentStatus(userId: number, courseId: number): Promise<{
+    enrolled: boolean;
+    canDrop: boolean;
+    status: string | null;
+    semesterNumber: number | null;
+    passedPreviously: boolean;
+    message: string | null;
+  }> {
+    const course = await this.courseRepository.findOneBy({ id: courseId });
+    if (!course) {
+      throw new NotFoundException('Course not found');
+    }
+
+    const userEnrollments = await this.enrollmentRepository.find({
+      where: { userId },
+      relations: ['course'],
+    });
+    const enrollment = userEnrollments.find((item) => item.courseId === courseId) ?? null;
+    const normalizedTitle = this.normalizeCourseTitle(course.title);
+    const passedEquivalent = userEnrollments.find(
+      (item) =>
+        item.courseId !== courseId &&
+        this.normalizeCourseTitle(item.course?.title) === normalizedTitle &&
+        item.status === 'completed' &&
+        this.isPassingGrade(item.grade),
+    );
+
+    if (!enrollment) {
+      return {
+        enrolled: false,
+        canDrop: false,
+        status: null,
+        semesterNumber: null,
+        passedPreviously: !!passedEquivalent,
+        message: passedEquivalent
+          ? 'You already passed this course in a previous semester.'
+          : null,
+      };
+    }
+
+    const dropEligibility = await this.getDropEligibility(enrollment);
+    return {
+      enrolled: true,
+      canDrop: dropEligibility.canDrop,
+      status: enrollment.status,
+      semesterNumber: enrollment.semesterNumber ?? null,
+      passedPreviously:
+        !!passedEquivalent ||
+        (enrollment.status === 'completed' && this.isPassingGrade(enrollment.grade)),
+      message: dropEligibility.message,
+    };
+  }
+
   async assignGrade(
     userId: number,
     courseId: number,
     grade: string,
     marks?: number,
+    finalMarks?: number,
+    midMarks?: number,
+    quizMarks?: number,
+    assignmentMarks?: number,
   ): Promise<Enrollment> {
+    const student = await this.userRepository.findOneBy({ id: userId });
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
     const enrollment = await this.enrollmentRepository.findOneBy({
       userId,
       courseId,
@@ -103,9 +226,42 @@ export class EnrollmentService {
     if (!enrollment) {
       throw new NotFoundException('Enrollment not found');
     }
+
+    if (enrollment.semesterNumber !== student.currentSemester) {
+      throw new ForbiddenException(
+        'Grades can only be assigned for active semester enrollments.',
+      );
+    }
+
+    await this.feeVoucherService.ensureSemesterChallanPaid(
+      userId,
+      student.currentSemester,
+    );
+
     enrollment.grade = grade;
     enrollment.status = 'completed';
-    if (marks !== undefined) enrollment.marks = marks;
+
+    const hasWeighted =
+      finalMarks !== undefined ||
+      midMarks !== undefined ||
+      quizMarks !== undefined ||
+      assignmentMarks !== undefined;
+
+    if (hasWeighted) {
+      if (finalMarks !== undefined) enrollment.finalMarks = finalMarks;
+      if (midMarks !== undefined) enrollment.midMarks = midMarks;
+      if (quizMarks !== undefined) enrollment.quizMarks = quizMarks;
+      if (assignmentMarks !== undefined) enrollment.assignmentMarks = assignmentMarks;
+      const fm = enrollment.finalMarks ?? 0;
+      const mm = enrollment.midMarks ?? 0;
+      const qm = enrollment.quizMarks ?? 0;
+      const am = enrollment.assignmentMarks ?? 0;
+      enrollment.marks =
+        Math.round((0.5 * fm + 0.25 * mm + 0.15 * qm + 0.1 * am) * 100) / 100;
+    } else if (marks !== undefined) {
+      enrollment.marks = marks;
+    }
+
     const saved = await this.enrollmentRepository.save(enrollment);
 
     // Send grade notification
@@ -113,10 +269,13 @@ export class EnrollmentService {
     await this.notificationService.createNotification(
       userId,
       'Grade Published',
-      `Your grade for ${course?.title || 'a course'} has been posted: ${grade}${marks !== undefined ? ` (${marks} marks)` : ''}`,
+      `Your grade for ${course?.title || 'a course'} has been posted: ${grade}${enrollment.marks !== undefined ? ` (${enrollment.marks} marks)` : ''}`,
       'grade',
       courseId,
     );
+
+    // Trigger automatic semester advancement if all courses in the semester are now graded
+    await this.semesterService.checkAndAutoAdvanceSemester(userId, saved.semesterNumber);
 
     return saved;
   }
@@ -127,6 +286,10 @@ export class EnrollmentService {
     courseId: number,
     grade: string,
     marks?: number,
+    finalMarks?: number,
+    midMarks?: number,
+    quizMarks?: number,
+    assignmentMarks?: number,
   ): Promise<Enrollment> {
     const course = await this.courseRepository.findOneBy({ id: courseId });
     if (!course || course.instructorId !== teacherId) {
@@ -134,7 +297,32 @@ export class EnrollmentService {
         'You can only assign grades for courses you teach',
       );
     }
-    return this.assignGrade(userId, courseId, grade, marks);
+
+    const enrollment = await this.enrollmentRepository.findOneBy({
+      userId,
+      courseId,
+    });
+    if (!enrollment) {
+      throw new NotFoundException('Enrollment not found');
+    }
+
+    const student = await this.userRepository.findOneBy({ id: userId });
+    if (!student) {
+      throw new NotFoundException('Student not found');
+    }
+
+    if (enrollment.semesterNumber !== student.currentSemester) {
+      throw new ForbiddenException(
+        'Grades can only be assigned for active semester enrollments.',
+      );
+    }
+
+    await this.feeVoucherService.ensureSemesterChallanPaid(
+      userId,
+      student.currentSemester,
+    );
+
+    return this.assignGrade(userId, courseId, grade, marks, finalMarks, midMarks, quizMarks, assignmentMarks);
   }
 
   async getStudentGrades(userId: number): Promise<Enrollment[]> {
@@ -163,7 +351,26 @@ export class EnrollmentService {
         'You can only view students for courses you teach',
       );
     }
-    return this.getAllEnrollmentsWithGrades(courseId);
+    const enrollments = await this.getAllEnrollmentsWithGrades(courseId);
+    const filtered = await Promise.all(
+      enrollments.map(async (enrollment) => {
+        const semNo = enrollment.semesterNumber ?? 1;
+        const student = await this.userRepository.findOneBy({ id: enrollment.userId });
+        if (!student || student.currentSemester !== semNo) {
+          return null;
+        }
+        try {
+          await this.feeVoucherService.ensureSemesterChallanPaid(
+            enrollment.userId,
+            semNo,
+          );
+          return enrollment;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return filtered.filter((item): item is Enrollment => item !== null);
   }
 
   async getResultCard(userId: number) {
@@ -199,6 +406,10 @@ export class EnrollmentService {
         creditHours: credits,
         grade: e.grade,
         marks: e.marks,
+        finalMarks: e.finalMarks,
+        midMarks: e.midMarks,
+        quizMarks: e.quizMarks,
+        assignmentMarks: e.assignmentMarks,
         gradePoints: gp,
       };
     });
@@ -208,5 +419,50 @@ export class EnrollmentService {
       totalCredits,
       gpa: totalCredits > 0 ? Math.round((totalPoints / totalCredits) * 100) / 100 : 0,
     };
+  }
+
+  private normalizeCourseTitle(title: string | null | undefined): string {
+    return (title || '').trim().toLowerCase();
+  }
+
+  private isPassingGrade(grade: string | null | undefined): boolean {
+    return !!grade && grade.trim().toUpperCase() !== 'F';
+  }
+
+  private async getDropEligibility(enrollment: Enrollment): Promise<{
+    canDrop: boolean;
+    message: string | null;
+  }> {
+    if (enrollment.status === 'completed') {
+      return {
+        canDrop: false,
+        message: 'Cannot drop a completed course. The grade has been finalized.',
+      };
+    }
+
+    if (this.isPassingGrade(enrollment.grade)) {
+      return {
+        canDrop: false,
+        message: 'Cannot drop a course that has already been passed.',
+      };
+    }
+
+    if (
+      enrollment.semesterNumber !== null &&
+      enrollment.semesterNumber !== undefined
+    ) {
+      const semesterRecord = await this.studentSemesterRepository.findOneBy({
+        userId: enrollment.userId,
+        semesterNumber: enrollment.semesterNumber,
+      });
+      if (semesterRecord && semesterRecord.status !== 'pending') {
+        return {
+          canDrop: false,
+          message: `Semester ${enrollment.semesterNumber} is already registered. Courses cannot be dropped now.`,
+        };
+      }
+    }
+
+    return { canDrop: true, message: null };
   }
 }

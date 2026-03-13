@@ -53,11 +53,7 @@ export class EnrollmentController {
     @Request() req: any,
     @Param('courseId', ParseIntPipe) courseId: number,
   ) {
-    const enrolled = await this.enrollmentService.isEnrolled(
-      req.user.userId,
-      courseId,
-    );
-    return { enrolled };
+    return this.enrollmentService.getEnrollmentStatus(req.user.userId, courseId);
   }
 
   @Delete('courses/:courseId')
@@ -74,7 +70,15 @@ export class EnrollmentController {
     @Request() req: any,
     @Param('courseId', ParseIntPipe) courseId: number,
     @Param('userId', ParseIntPipe) userId: number,
-    @Body() body: { grade: string; marks?: number },
+    @Body()
+    body: {
+      grade: string;
+      marks?: number;
+      finalMarks?: number;
+      midMarks?: number;
+      quizMarks?: number;
+      assignmentMarks?: number;
+    },
   ) {
     if (req.user.role === 'teacher') {
       return this.enrollmentService.assignGradeAsTeacher(
@@ -83,6 +87,10 @@ export class EnrollmentController {
         courseId,
         body.grade,
         body.marks,
+        body.finalMarks,
+        body.midMarks,
+        body.quizMarks,
+        body.assignmentMarks,
       );
     }
     return this.enrollmentService.assignGrade(
@@ -90,6 +98,10 @@ export class EnrollmentController {
       courseId,
       body.grade,
       body.marks,
+      body.finalMarks,
+      body.midMarks,
+      body.quizMarks,
+      body.assignmentMarks,
     );
   }
 

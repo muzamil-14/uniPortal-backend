@@ -18,6 +18,7 @@ import { CourseMaterialService } from './course-material.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { FeeVoucherService } from '../fee-voucher/fee-voucher.service';
 
 const storage = diskStorage({
   destination: './uploads',
@@ -30,7 +31,10 @@ const storage = diskStorage({
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('course-materials')
 export class CourseMaterialController {
-  constructor(private readonly materialService: CourseMaterialService) {}
+  constructor(
+    private readonly materialService: CourseMaterialService,
+    private readonly feeVoucherService: FeeVoucherService,
+  ) {}
 
   @Roles('teacher')
   @Post()
@@ -50,7 +54,13 @@ export class CourseMaterialController {
   }
 
   @Get('course/:courseId')
-  findByCourse(@Param('courseId', ParseIntPipe) courseId: number) {
+  async findByCourse(
+    @Request() req: any,
+    @Param('courseId', ParseIntPipe) courseId: number,
+  ) {
+    if (req.user.role === 'student') {
+      await this.feeVoucherService.ensureCourseAccess(req.user.userId, courseId);
+    }
     return this.materialService.findByCourse(courseId);
   }
 

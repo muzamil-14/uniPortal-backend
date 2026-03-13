@@ -38,6 +38,9 @@ export class Course {
   @Column({ default: 3 })
   creditHours: number;
 
+  @Column({ type: 'int', nullable: true })
+  semesterNumber: number | null;
+
   @Column({ type: 'json', nullable: true })
   departments: string[];
 

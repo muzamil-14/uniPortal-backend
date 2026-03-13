@@ -6,10 +6,12 @@ import { QuizService } from './quiz.service';
 import { QuizController } from './quiz.controller';
 import { QuizGateway } from './quiz.gateway';
 import { QuizRealtimeService } from './quiz-realtime.service';
+import { FeeVoucherModule } from '../fee-voucher/fee-voucher.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Quiz, QuizQuestion, QuizAttempt, Enrollment]),
+    FeeVoucherModule,
   ],
   controllers: [QuizController],
   providers: [QuizService, QuizGateway, QuizRealtimeService],

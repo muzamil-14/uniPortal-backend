@@ -5,9 +5,13 @@ import { SubmissionService } from './submission.service';
 import { SubmissionController } from './submission.controller';
 import { Assignment } from '../assignment/assignment.entity';
 import { Enrollment } from '../enrollment/enrollment.entity';
+import { FeeVoucherModule } from '../fee-voucher/fee-voucher.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Submission, Assignment, Enrollment])],
+  imports: [
+    TypeOrmModule.forFeature([Submission, Assignment, Enrollment]),
+    FeeVoucherModule,
+  ],
   controllers: [SubmissionController],
   providers: [SubmissionService],
 })
